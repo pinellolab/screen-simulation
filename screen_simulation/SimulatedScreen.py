@@ -44,10 +44,12 @@ class SimulatedScreen:
         n_guides_per_target = 5,
         n_total_cells = 10**6*8,
         n_bulk_cells = None,
+        n_genome_per_sample = 10e4,
         n_reads_per_sample = 10**6*2,
         vars_per_mu = 10,
         mu_steps = 10,
-        max_effect_size = 1
+        max_effect_size = 1,
+        has_reporter = False
         ):
 
         self.sorting_mode = sorting_mode
@@ -57,7 +59,7 @@ class SimulatedScreen:
             self.sorting_bins =  ["bot", "low", "mid", "high", "top"]
         else:
             raise ValueError("Invalid sorting_mode")
-        self.samples = self.sorting_bins + ["bulk"]
+        self.sample_names = self.sorting_bins + ["bulk"]
 
         self.nreps = nreps
         self.n_targets = n_targets
@@ -69,6 +71,7 @@ class SimulatedScreen:
                 "guide_counts" : np.ones(len(self.n_guides)),
                 "edit_rate" : 1
                 }
+                # This will result in uniformly distributed number of guides and edit rate of 1.
             )
         else:
             self.count_edit_stats = pd.read_csv(edit_count_stats_file)
@@ -79,10 +82,12 @@ class SimulatedScreen:
             self.n_bulk_cells = self.n_total_cells / 3
         else:
             self.n_bulk_cells = n_bulk_cells
+        self.n_genome_per_sample = n_genome_per_sample
         self.n_reads_per_sample = n_reads_per_sample
         self.vars_per_mu = vars_per_mu
         self.mu_steps = mu_steps
         self.max_effect_size = max_effect_size
+        self.has_reporter = has_reporter
         self.phenotypes = None
         self.screen_res = []
 
@@ -104,6 +109,7 @@ class SimulatedScreen:
 
 
     def _sample_all_from_data(self):
+        # samples (guide_count, edit_rate) from self.count_edit_stats
         row = self.count_edit_stats.sample(self.n_guides, replace = True).reset_index()
         guide_count_norm = np.floor(row.guide_count / self.count_edit_stats.guide_count.sum() * self.total_cells)
         return((guide_count_norm, row.edit_rate))
@@ -130,31 +136,43 @@ class SimulatedScreen:
         return(effect_sizes)
 
 
-    def simulate_phenotypes(self):
+    def simulate_cells(self):
+        """ Simulates cells as dataframe as self.cells. """
+
+        # Simulate the effect sizes of the variants.
         effect_sizes = self._get_effect_sizes()
+        # Get coverage and edit rate pairs for each guide
         covs, edit_rates = _sample_all_from_data()
 
-        guide_info["coverage"] = covs.astype(int)
-        guide_info["edit_rate"] = edit_rates
+        # Cell coverage and edit rate per guide
+        self.guide_info["coverage"] = covs.astype(int)
+        self.guide_info["edit_rate"] = edit_rates
         
-        phenotypes = self.guide_info.reindex(self.guide_info.index.repeat(self.guide_info.coverage)).reset_index()
-        phenotypes['edited'] = scipy.stats.bernoulli.rvs(phenotypes.edit_rate)
-        phenotypes['reporter_edited'] = scipy.stats.bernoulli.rvs(phenotypes.edit_rate)
-        phenotypes['phenotype_mean'] = phenotypes['edited']*phenotypes['effect_size']
-        phenotypes['phenotype'] = scipy.stats.norm.rvs(loc = phenotypes.phenotype_mean, scale = 1)
-        self.phenotypes = phenotypes
+        cells = self.guide_info.reindex(self.guide_info.index.repeat(self.guide_info.coverage)).reset_index()
+        cells['edited'] = scipy.stats.bernoulli.rvs(cells.edit_rate)
+        cells['phenotype_mean'] = cells['edited']*cells['effect_size']
+        cells['phenotype'] = scipy.stats.norm.rvs(loc = cells.phenotype_mean, scale = 1)
 
+        if self.has_reporter:
+            cells['reporter_edited'] = scipy.stats.bernoulli.rvs(cells.edit_rate)
 
+        self.cells = cells
 
-    def get_sorted_cell_counts(self):
-        """Sort cells (phenotypes) into designated sorting scheme: bulk, 1/2/3/4"""
+    def expand_cells(self):
+        self.cells = NotImplemented
+
+    def select_cells(self):
+        self.cells = NotImplemented
+
+    def sort_cells(self):
+        """Sort cells into designated sorting scheme: bulk, 1/2/3/4"""
         if self.sorting_mode == "bins":
-            self.get_sorted_cell_counts_quantiles(q = 5, bin_labels = self.bin_labels)
+            self.sort_cells_quantiles(q = 5, bin_labels = self.bin_labels)
         elif self.sorting_mode == "topbot":
-            self.get_sorted_cell_counts_quantiles(q = [0, 0.3, 0.7, 1], bin_labels = self.bin_labels)
+            self.sort_cells_quantiles(q = [0, 0.3, 0.7, 1], bin_labels = self.bin_labels)
         
 
-    def get_sorted_cell_counts_quantiles(
+    def sort_cells_quantiles(
         self, 
         q = [0, 0.2, 0.4, 0.6, 0.8, 1],
         bin_labels = None
@@ -173,20 +191,20 @@ class SimulatedScreen:
                 raise ValueError("provided length of bin_labels \
                     doesn't match the number of bins made by quantile")      
 
-        phenotype_df["sorted_bin"] = pd.qcut(
-            phenotype_df.phenotype,
+        self.cells["sorted_bin"] = pd.qcut(
+            self.cells.phenotype,
             q = q,
             labels = bin_labels
         )
 
-        guide_info = phenotype_df[["target_id", "guide_num"]].drop_duplicates()
 
+        """
         counts = _aggregate_counts(
-            phenotype_df, 
+            self.cells, 
            group_by = ["target_id", "guide_num", "sorted_bin"]
         ).reset_index()
         
-        bulk = phenotype_df.sample(n = n_bulk_cells, replace = True)
+        bulk = self.cells.sample(n = n_bulk_cells, replace = True)
         bulk_counts = _aggregate_counts(bulk, "bulk")
 
         sorted_counts = guide_info.merge(counts, on = ["target_id", "guide_num"])
@@ -200,30 +218,67 @@ class SimulatedScreen:
             bulk_counts, on = ["target_id", "guide_num"])
         sorted_counts = sorted_counts.fillna(0)
         return(sorted_counts)
+        """
 
 
-    def get_sorted_read_counts(self, cell_counts : pd.DataFrame):
-        measures = ["guide", "target_edit", "reporter_edit"]
-        samples = self.sorting_bins + ["bulk"]
-        read_counts = cell_counts[["target_id", "guide_num"]].reset_index(
-            drop = True)
-        for sample in samples:
-            all_guide_count = cell_counts["{}_guide".format(sample)].sum()
-            for measure in measures:
-                bin_measure = "{}_{}".format(sample, measure)
-                cell_counts["{}_p".format(sample)] = cell_counts[bin_measure] / all_guide_count
-                assert not bin_measure in read_counts.columns
-                read_counts[bin_measure] = \
-                    scipy.stats.binom.rvs(
-                        self.n_reads_per_sample, 
-                        cell_counts["{}_p".format(sample)]
-                    )
-        return(read_counts)
+    def get_genomes(self, cell_counts : pd.DataFrame):
+        """
+        Samples the genomes for each sequencing samples prepped.
+        Number of genomes sampled is sampled as the multinomial 
+        distribution with p proportional to cell counts per guide.
 
+        Assigns self.samples attribute which is Dict[str -> pd.DataFrame]
+        that stores sampled genomes per sample with UMI
+        """
+        self.samples = {} # Dict[str -> pd.DataFrame]
+        cell_record_to_keep = ["target_id", "guide_num", "edited"]
+        if self.has_reporter: cell_record_to_keep.append("reporter_edited")
+        
+        # sorted bins
+        for sorting_bin, cell_idx in self.cells.groupby("sorted_bin", as_index = False).groups:
+            self.samples[sorting_bin] = self.cells[cell_idx, cell_record_to_keep].sample(
+                n = self.n_genome_per_sample, replace = False)
+
+        # bulk sample
+        self.samples["bulk"] = self.cells[:, cell_record_to_keep].sample(
+            n = self.n_genome_per_sample, replace = False)
+
+        # Assign UMI
+        for sample_name in self.sample_names:
+            self.samples[sample_name]["UMI"] = list(range(len(self.samples[sample_name])))
+
+        
+    def amplify_reads(self):
+        for sample_name, df in self.samples:
+            amplify_count = np.ones(len(df)) #TODO: different amplification per molecule (UMI)
+            amplify_count *= self.n_reads_per_sample / expand_count.sum()
+            self.samples[sample_name] = pd.DataFrame(np.repeat(df.values, amplify_count, axis = 0))
+            self.samples[sample_name].columns = df.columns
+
+    def get_read_counts(self):
+        measures = ["guide", "target_edit"]
+        agg_fn = {"edited":["count", "sum"]}
+        if self.has_reporter:
+            measures.append("reporter_edit")
+            agg_fn["reporter_edited":"sum"]
+        measures_umi = list(map(lambda s: s + "_UMI", measures))
+
+        samples_counts = self.guide_info
+        for sample_name, df in self.samples:
+            counts = df.groupby(["target_id", "guide_num"]).agg(agg_fn)
+            counts_umi = df.drop_duplicates().groupby(["target_id", "guide_num"]).agg(agg_fn)
+            counts.columns = measures.map(lambda s: "{}_{}".format(sample_name, s))
+            counts_umi.columns = measures_umi.map(lambda s: "{}_{}".format(sample_name, s))
+            samples_counts = samples_counts.merge(counts, on = ["target_id", "guide_num"]).merge(
+                counts_umi, on = ["target_id", "guide_num"])
+
+        return(samples_counts)
 
     def simulate_rep(self):
-        cell_counts = self.get_sorted_cell_counts()
-        read_counts = self.get_sorted_read_counts(cell_counts)
+        self.sort_cells()
+        self.get_genomes()
+        self.amplify_reads(genome_counts)
+        read_counts = self.get_read_counts()
         return(read_counts)
 
 

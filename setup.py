@@ -8,7 +8,7 @@ setup(
     author=['Jayoung Ryu'],
     author_email=['jayoung_ryu@g.harvard.edu'],
     license='MIT',
-    packages=['screen-simulation'],
+    packages=['screen_simulation'],
 
     classifiers=[
         'Development Status :: 1 - Planning',
