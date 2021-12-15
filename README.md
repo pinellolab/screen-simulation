@@ -41,7 +41,7 @@ sim
 #	n_guides = 3500
 #	n_total_cells = 8000000
 #	n_cells_per_rep = 2000000
-#	n_bulk_cells = 2666666.6666666665
+#	n_bulk_cells = 2666666
 #	n_genome_per_sample = 100000
 #	n_reads_per_sample = 2000000
 #	vars_per_mu = 10
