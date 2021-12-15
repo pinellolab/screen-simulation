@@ -151,7 +151,8 @@ class SimulatedScreen:
         cells = self.guide_info.reindex(self.guide_info.index.repeat(self.guide_info.coverage)).reset_index()
         cells['edited'] = scipy.stats.bernoulli.rvs(cells.edit_rate)
         cells['phenotype_mean'] = cells['edited']*cells['effect_size']
-        cells['phenotype'] = scipy.stats.norm.rvs(loc = cells.phenotype_mean, scale = 1)
+        cells['phenotype'] = scipy.stats.norm.rvs(loc = cells.phenotype_mean, scale = 1) 
+        #TODO: for scRNA readout this line should be different @Lucas
 
         if self.has_reporter:
             cells['reporter_edited'] = scipy.stats.bernoulli.rvs(cells.edit_rate)
