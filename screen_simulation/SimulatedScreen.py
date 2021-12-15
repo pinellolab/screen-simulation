@@ -39,13 +39,13 @@ class SimulatedScreen:
     def __init__(self, 
         edit_count_stats_file = None,
         sorting_mode: str = "topbot",
-        nreps = 4,
-        n_targets = 700,
-        n_guides_per_target = 5,
-        n_total_cells = 10**6*8,
+        nreps:int  = 4,
+        n_targets:int = 700,
+        n_guides_per_target:int = 5,
+        n_total_cells:int = 10**6*8,
         n_bulk_cells = None,
-        n_genome_per_sample = 10e4,
-        n_reads_per_sample = 10**6*2,
+        n_genome_per_sample:int = int(10e4),
+        n_reads_per_sample:int = 10**6*2,
         vars_per_mu = 10,
         mu_steps = 10,
         max_effect_size = 1,
@@ -61,14 +61,14 @@ class SimulatedScreen:
             raise ValueError("Invalid sorting_mode")
         self.sample_names = self.sorting_bins + ["bulk"]
 
-        self.nreps = nreps
+        self.n_reps = nreps
         self.n_targets = n_targets
         self.n_guides_per_target = n_guides_per_target
         self.n_guides = self.n_targets * self.n_guides_per_target
 
         if edit_count_stats_file is None:
             self.count_edit_stats = pd.DataFrame({
-                "guide_counts" : np.ones(len(self.n_guides)),
+                "guide_count" : np.ones(self.n_guides),
                 "edit_rate" : 1
                 }
                 # This will result in uniformly distributed number of guides and edit rate of 1.
@@ -111,7 +111,7 @@ class SimulatedScreen:
     def _sample_all_from_data(self):
         # samples (guide_count, edit_rate) from self.count_edit_stats
         row = self.count_edit_stats.sample(self.n_guides, replace = True).reset_index()
-        guide_count_norm = np.floor(row.guide_count / self.count_edit_stats.guide_count.sum() * self.total_cells)
+        guide_count_norm = np.floor(row.guide_count / self.count_edit_stats.guide_count.sum() * self.n_total_cells)
         return((guide_count_norm, row.edit_rate))
 
     def _get_effect_sizes(self):
@@ -120,7 +120,7 @@ class SimulatedScreen:
             self.max_effect_size/self.mu_steps, 
             self.max_effect_size, 
             num = self.mu_steps)
-        coverage = np.floor(self.total_cells / self.n_guides)
+        coverage = np.floor(self.n_total_cells / self.n_guides)
         effect_sizes = np.concatenate(
             (np.zeros(no_effect_targets), 
             np.repeat(mu_delta, self.vars_per_mu)
@@ -142,7 +142,7 @@ class SimulatedScreen:
         # Simulate the effect sizes of the variants.
         effect_sizes = self._get_effect_sizes()
         # Get coverage and edit rate pairs for each guide
-        covs, edit_rates = _sample_all_from_data()
+        covs, edit_rates = self._sample_all_from_data()
 
         # Cell coverage and edit rate per guide
         self.guide_info["coverage"] = covs.astype(int)
@@ -168,9 +168,9 @@ class SimulatedScreen:
     def sort_cells(self):
         """Sort cells into designated sorting scheme: bulk, 1/2/3/4"""
         if self.sorting_mode == "bins":
-            self.sort_cells_quantiles(q = 5, bin_labels = self.bin_labels)
+            self.sort_cells_quantiles(q = 5, bin_labels = self.sorting_bins)
         elif self.sorting_mode == "topbot":
-            self.sort_cells_quantiles(q = [0, 0.3, 0.7, 1], bin_labels = self.bin_labels)
+            self.sort_cells_quantiles(q = [0, 0.3, 0.7, 1], bin_labels = self.sorting_bins)
         
 
     def sort_cells_quantiles(
@@ -200,7 +200,7 @@ class SimulatedScreen:
 
 
 
-    def get_genomes(self, cell_counts : pd.DataFrame):
+    def get_genomes(self):
         """
         Samples the genomes for each sequencing samples prepped.
         Number of genomes sampled is sampled as the multinomial 
@@ -214,12 +214,12 @@ class SimulatedScreen:
         if self.has_reporter: cell_record_to_keep.append("reporter_edited")
         
         # sorted bins
-        for sorting_bin, cell_idx in self.cells.groupby("sorted_bin", as_index = False).groups:
-            self.samples[sorting_bin] = self.cells[cell_idx, cell_record_to_keep].sample(
+        for sorting_bin, df in self.cells.groupby("sorted_bin", as_index = False):
+            self.samples[sorting_bin] = df[cell_record_to_keep].sample(
                 n = self.n_genome_per_sample, replace = False)
 
         # bulk sample
-        self.samples["bulk"] = self.cells[:, cell_record_to_keep].sample(
+        self.samples["bulk"] = self.cells[cell_record_to_keep].sample(
             n = self.n_genome_per_sample, replace = False)
 
         # Assign UMI
@@ -228,10 +228,10 @@ class SimulatedScreen:
 
         
     def amplify_reads(self):
-        for sample_name, df in self.samples:
+        for sample_name, df in self.samples.items():
             amplify_count = np.ones(len(df)) #TODO: different amplification per molecule (UMI)
-            amplify_count *= self.n_reads_per_sample / expand_count.sum()
-            self.samples[sample_name] = pd.DataFrame(np.repeat(df.values, amplify_count, axis = 0))
+            amplify_count *= self.n_reads_per_sample / amplify_count.sum()
+            self.samples[sample_name] = pd.DataFrame(np.repeat(df.values, amplify_count.astype(int), axis = 0))
             self.samples[sample_name].columns = df.columns
 
     def get_read_counts(self):
@@ -243,11 +243,11 @@ class SimulatedScreen:
         measures_umi = list(map(lambda s: s + "_UMI", measures))
 
         samples_counts = self.guide_info
-        for sample_name, df in self.samples:
+        for sample_name, df in self.samples.items():
             counts = df.groupby(["target_id", "guide_num"]).agg(agg_fn)
             counts_umi = df.drop_duplicates().groupby(["target_id", "guide_num"]).agg(agg_fn)
-            counts.columns = measures.map(lambda s: "{}_{}".format(sample_name, s))
-            counts_umi.columns = measures_umi.map(lambda s: "{}_{}".format(sample_name, s))
+            counts.columns = ["{}_{}".format(sample_name, s) for s in measures]
+            counts_umi.columns = ["{}_{}".format(sample_name, s) for s in measures_umi]
             samples_counts = samples_counts.merge(counts, on = ["target_id", "guide_num"]).merge(
                 counts_umi, on = ["target_id", "guide_num"])
 
@@ -260,7 +260,7 @@ class SimulatedScreen:
         # self.select_cells()
         self.sort_cells()
         self.get_genomes()
-        self.amplify_reads(genome_counts)
+        self.amplify_reads()
         read_counts = self.get_read_counts()
         return(read_counts)
 
