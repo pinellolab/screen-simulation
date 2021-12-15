@@ -3,7 +3,9 @@ Simulate bulk CRISPR screen with sorting schemes and reproter/target edits
 
 ### Setup  
 In the cloned folder, run  
-```pip install -e .```
+```
+pip install -e .
+```
 
 Then you can import the `screen_simulation` module in python or jupyter notebook.  
 ```
