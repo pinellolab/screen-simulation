@@ -1,7 +1,7 @@
 # screen-simulation
 Simulate bulk CRISPR screen with sorting schemes and reproter/target edits
 
-###Setup
+### Setup  
 In the cloned folder, run  
 ```pip install -e .```
 
