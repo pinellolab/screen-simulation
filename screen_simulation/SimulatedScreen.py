@@ -159,10 +159,10 @@ class SimulatedScreen:
         self.cells = cells
 
     def expand_cells(self):
-        self.cells = NotImplemented
+        self.cells = NotImplemented #TODO
 
     def select_cells(self):
-        self.cells = NotImplemented
+        self.cells = NotImplemented #TODO
 
     def sort_cells(self):
         """Sort cells into designated sorting scheme: bulk, 1/2/3/4"""
@@ -197,28 +197,6 @@ class SimulatedScreen:
             labels = bin_labels
         )
 
-
-        """
-        counts = _aggregate_counts(
-            self.cells, 
-           group_by = ["target_id", "guide_num", "sorted_bin"]
-        ).reset_index()
-        
-        bulk = self.cells.sample(n = n_bulk_cells, replace = True)
-        bulk_counts = _aggregate_counts(bulk, "bulk")
-
-        sorted_counts = guide_info.merge(counts, on = ["target_id", "guide_num"])
-        sorted_counts = sorted_counts.pivot(
-            index = ["target_id", "guide_num"], 
-            columns = "sorted_bin",
-            values = ["guide", "target_edit", "reporter_edit"])
-
-        sorted_counts.columns = ['_'.join(col[::-1]).strip() for col in sorted_counts.columns.values]
-        sorted_counts = sorted_counts.reset_index().merge(
-            bulk_counts, on = ["target_id", "guide_num"])
-        sorted_counts = sorted_counts.fillna(0)
-        return(sorted_counts)
-        """
 
 
     def get_genomes(self, cell_counts : pd.DataFrame):
@@ -275,6 +253,10 @@ class SimulatedScreen:
         return(samples_counts)
 
     def simulate_rep(self):
+        self.simulate_cells()
+        # TODO: growing cells and adapting for viability screen
+        # self.expand_cells()
+        # self.select_cells()
         self.sort_cells()
         self.get_genomes()
         self.amplify_reads(genome_counts)
