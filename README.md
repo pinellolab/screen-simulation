@@ -13,7 +13,7 @@ from screen_simulation.SimulatedScreen import *
 ```
 
 ### Usage
-Generating new simulation of a screen  
+#### Generating new simulation of a screen  
 ```
 sim = SimulatedScreen()
 ```
@@ -26,4 +26,11 @@ sim.simulate_rep()
 Simulating multiple replicates  
 ```
 sim.simulate_reps()
+```
+
+#### Screen information can be retrieved
+```
+sim.guide_info
+sim.cells
+sim.samples
 ```
