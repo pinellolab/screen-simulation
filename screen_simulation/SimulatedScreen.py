@@ -1,4 +1,5 @@
 from typing import List
+from inspect import ismethod
 import numpy as np
 import pandas as pd
 from pprint import pprint
@@ -94,8 +95,12 @@ class SimulatedScreen:
 
     def __repr__(self):
         out_str = "SimulatedScreen object with \n"
-        for attr in dir(self):
-            out_str += "\t{} = {}\n".format(attr, getattr(self, attr))
+        for k, v in getattr(self, "__dict__").items():
+            if k.startswith("_"): continue
+            if ismethod(v): continue
+            if isinstance(v, pd.DataFrame): continue
+            if k in ["samples", "screen_res"]: continue
+            out_str += "\t{} = {}\n".format(k, v)
         return(out_str)
 
     def get_id(self):
