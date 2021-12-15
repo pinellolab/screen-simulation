@@ -33,4 +33,5 @@ sim.simulate_reps()
 sim.guide_info
 sim.cells
 sim.samples
+sim.screen_res # result of sim.simulate_reps() is saved here
 ```
