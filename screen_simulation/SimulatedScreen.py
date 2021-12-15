@@ -80,7 +80,7 @@ class SimulatedScreen:
         self.n_total_cells = n_total_cells
         self.n_cells_per_rep = int(self.n_total_cells / self.n_reps)
         if n_bulk_cells is None:
-            self.n_bulk_cells = self.n_total_cells / 3
+            self.n_bulk_cells = int(self.n_total_cells / 3)
         else:
             self.n_bulk_cells = n_bulk_cells
         self.n_genome_per_sample = n_genome_per_sample
@@ -89,7 +89,6 @@ class SimulatedScreen:
         self.mu_steps = mu_steps
         self.max_effect_size = max_effect_size
         self.has_reporter = has_reporter
-        self.phenotypes = None
         self.screen_res = []
 
 
