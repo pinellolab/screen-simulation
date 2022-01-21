@@ -28,6 +28,16 @@ Simulating multiple replicates
 sim.simulate_reps()
 ```
 
+Above is equivalent to simulating individual experimental steps:  
+```
+sim.simulate_cells()    # simulate cells with phenotype and target site edits
+sim.sort_cells()        # sort cells
+sim.get_genomes()       # get genome (only few genomes are obtained in experimental sampling for PCR)
+sim.amplify_reads()     # amplify reads
+sim.get_read_counts()   # get read counts
+```
+
+
 #### Screen information can be retrieved  
 ```
 sim
