@@ -29,7 +29,8 @@ def write_mageck_input(
     count_tbl = reduce(lambda left, right: left.join(right), to_merge)
     count_tbl = count_tbl.reset_index().fillna(0)
 
-    count_tbl.insert(0, "sgRNA", count_tbl.reset_index().target_id.astype(str) + "_" + count_tbl.guide_num.astype(str))
+    count_tbl.insert(0, "sgRNA", 
+        count_tbl.reset_index().target_id.astype(str) + "_" + count_tbl.guide_num.astype(str))
     count_tbl = count_tbl.rename(columns = {"target_id":"gene"})
     count_tbl = count_tbl.drop('guide_num', axis = 1).astype(int)
     count_tbl.to_csv(outfile_name, sep = "\t", index = False)
@@ -145,7 +146,8 @@ def get_mageck_sensitivity(
 
     sim_sens_df = pd.concat(sim_sensitivities, axis = 0)
     mageck_res_df = pd.concat(mageck_res_bins_all, axis = 0)
-    mean_sens_df = sim_sens_df.groupby("effect_size").agg("mean")[screen.sorting_bins_tested + ["any"]]
+    mean_sens_df = sim_sens_df.groupby(["measure", "effect_size"]).agg(
+        "mean")[screen.sorting_bins_tested + ["any"]]
     
     return((mean_sens_df, mageck_res_df))
    
