@@ -1,9 +1,14 @@
-from typing import List
+from typing import List, Optional, Union
 from inspect import ismethod
+
 import numpy as np
 import pandas as pd
 from pprint import pprint
 import scipy.stats
+
+
+edit_rates_saved_data = np.loadtxt("/data/pinello/PROJECTS/2021_08_ANBE/data/07+1021_ANBE_data/crisprep_count/bulk_edit_rates.csv")
+guide_coverage_saved_data = np.loadtxt("/data/pinello/PROJECTS/2021_08_ANBE/data/07+1021_ANBE_data/crisprep_count/bulk_coverage_sums.csv")
 
 
 def _aggregate_counts(df, prefix = None, group_by = ["target_id", "guide_num"]):
@@ -38,19 +43,18 @@ class SimulatedScreen:
     """
 
     def __init__(self, 
-        edit_count_stats_file = None,
-        sorting_mode: str = "topbot",
-        nreps:int  = 4,
-        n_targets:int = 700,
-        n_guides_per_target:int = 5,
-        n_total_cells:int = 10**6*8,
+        n_targets: int = 700,
+        n_guides_per_target: int = 5,
+        n_total_cells: int = 10**6*8,
         n_bulk_cells = None,
+        sorting_mode: str = "topbot",
+        nreps:int = 4,
         n_genome_per_sample:int = int(10e4),
         n_reads_per_sample:int = 10**6*2,
-        vars_per_mu = 10,
-        mu_steps = 10,
-        max_effect_size = 1,
-        has_reporter = False
+        effect_size_distribution: Optional[Union[np.ndarray, str]] = None,
+        guide_coverage_distribution: Optional[Union[np.ndarray, str]] = "data",
+        edit_rate_distribution: Optional[Union[np.ndarray, str]] = "data",
+        has_reporter = False,
         ):
 
         self.sorting_mode = sorting_mode
@@ -59,23 +63,39 @@ class SimulatedScreen:
         elif self.sorting_mode == "bins":
             self.sorting_bins =  ["bot", "low", "mid", "high", "top"]
         else:
-            raise ValueError("Invalid sorting_mode")
+            raise ValueError("Invalid sorting_mode: {}".format(sorting_mode))
         self.sample_names = self.sorting_bins + ["bulk"]
+        self.sorting_bins_tested = [sb for sb in self.sorting_bins if sb != "mid"]
 
         self.n_reps = nreps
         self.n_targets = n_targets
         self.n_guides_per_target = n_guides_per_target
         self.n_guides = self.n_targets * self.n_guides_per_target
 
-        if edit_count_stats_file is None:
-            self.count_edit_stats = pd.DataFrame({
-                "guide_count" : np.ones(self.n_guides),
-                "edit_rate" : 1
-                }
-                # This will result in uniformly distributed number of guides and edit rate of 1.
-            )
+        if edit_rate_distribution is None:
+            self.edit_rate_dist = np.array([1])
+        elif edit_rate_distribution == "data":
+            self.edit_rate_dist = edit_rates_saved_data
+        elif isinstance(edit_rate_distribution, np.ndarray):
+            self.edit_rate_dist = edit_rate_distribution
         else:
-            self.count_edit_stats = pd.read_csv(edit_count_stats_file)
+            raise ValueError("Invalid edit_rate_distribution: {}".format(edit_rate_distribution))
+
+        if guide_coverage_distribution is None:
+            self.guide_coverage_dist = np.array([1])
+        elif guide_coverage_distribution == "data":
+            self.guide_coverage_dist = guide_coverage_saved_data
+        elif isinstance(guide_coverage_distribution, np.ndarray):
+            self.guide_coverage_dist = guide_coverage_distribution
+        else:
+            raise ValueError("Invalid guide_coverage_distribution: {}".format(guide_coverage_distribution))
+
+        if effect_size_distribution is None:
+            self.effect_size_dist = np.concatenate((np.repeat(0, 60), np.linspace(0.1, 1, 10)))
+        elif isinstance(effect_size_distribution, np.ndarray):
+            self.effect_size_dist = effect_size_distribution
+        else:
+            raise ValueError("Invalid effect_size_distribution: {}".format(effect_size_distribution))
 
         self.n_total_cells = n_total_cells
         self.n_cells_per_rep = int(self.n_total_cells / self.n_reps)
@@ -85,10 +105,13 @@ class SimulatedScreen:
             self.n_bulk_cells = n_bulk_cells
         self.n_genome_per_sample = n_genome_per_sample
         self.n_reads_per_sample = n_reads_per_sample
-        self.vars_per_mu = vars_per_mu
-        self.mu_steps = mu_steps
-        self.max_effect_size = max_effect_size
+        
         self.has_reporter = has_reporter
+        self.measures = ["guide", "target_edit"]
+        if self.has_reporter:
+            self.measures.append("reporter_edit")
+        measures_umi = list(map(lambda s: s + "_UMI", self.measures))
+        self.measures_all = self.measures + measures_umi
         self.screen_res = []
 
 
@@ -106,7 +129,7 @@ class SimulatedScreen:
         params = "{}_{}_{}_{}".format(
             self.sorting_mode, 
             self.n_cells_per_rep, 
-            self.nreps, 
+            self.n_reps, 
             self.n_reads_per_sample
         )
         return(params)
@@ -114,21 +137,13 @@ class SimulatedScreen:
 
     def _sample_all_from_data(self):
         # samples (guide_count, edit_rate) from self.count_edit_stats
-        row = self.count_edit_stats.sample(self.n_guides, replace = True).reset_index()
-        guide_count_norm = np.floor(row.guide_count / self.count_edit_stats.guide_count.sum() * self.n_total_cells)
-        return((guide_count_norm, row.edit_rate))
+        edit_rate = np.random.choice(self.edit_rate_dist, size =self.n_guides, replace = True)
+        guide_count_raw = np.random.choice(self.guide_coverage_dist, size = self.n_guides, replace = True)
+        guide_count_norm = np.floor(guide_count_raw / self.guide_coverage_dist.sum() * self.n_total_cells)
+        return((guide_count_norm, edit_rate))
 
     def _get_effect_sizes(self):
-        no_effect_targets = self.n_targets - self.mu_steps*self.vars_per_mu
-        mu_delta = np.linspace(
-            self.max_effect_size/self.mu_steps, 
-            self.max_effect_size, 
-            num = self.mu_steps)
-        coverage = np.floor(self.n_total_cells / self.n_guides)
-        effect_sizes = np.concatenate(
-            (np.zeros(no_effect_targets), 
-            np.repeat(mu_delta, self.vars_per_mu)
-            ))
+        effect_sizes = np.resize(self.effect_size_dist, self.n_targets)
     
         self.guide_info = pd.DataFrame({
             "target_id" : np.repeat(list(range(self.n_targets)), self.n_guides_per_target), 
@@ -172,7 +187,7 @@ class SimulatedScreen:
     def sort_cells(self):
         """Sort cells into designated sorting scheme: bulk, 1/2/3/4"""
         if self.sorting_mode == "bins":
-            self.sort_cells_quantiles(q = 5, bin_labels = self.sorting_bins)
+            self.sort_cells_quantiles(q = [0, 0.2, 0.4, 0.6, 0.8, 1], bin_labels = self.sorting_bins)
         elif self.sorting_mode == "topbot":
             self.sort_cells_quantiles(q = [0, 0.3, 0.7, 1], bin_labels = self.sorting_bins)
         
@@ -218,9 +233,14 @@ class SimulatedScreen:
         if self.has_reporter: cell_record_to_keep.append("reporter_edited")
         
         # sorted bins
+
         for sorting_bin, df in self.cells.groupby("sorted_bin", as_index = False):
-            self.samples[sorting_bin] = df[cell_record_to_keep].sample(
-                n = self.n_genome_per_sample, replace = False)
+            if self.n_genome_per_sample > len(df): 
+                # All genomes are sampled
+                self.samples[sorting_bin] = df[cell_record_to_keep]
+            else:
+                self.samples[sorting_bin] = df[cell_record_to_keep].sample(
+                    n = self.n_genome_per_sample, replace = False)
 
         # bulk sample
         self.samples["bulk"] = self.cells[cell_record_to_keep].sample(
@@ -239,22 +259,19 @@ class SimulatedScreen:
             self.samples[sample_name].columns = df.columns
 
     def get_read_counts(self):
-        measures = ["guide", "target_edit"]
         agg_fn = {"edited":["count", "sum"]}
         if self.has_reporter:
-            measures.append("reporter_edit")
-            agg_fn["reporter_edited":"sum"]
-        measures_umi = list(map(lambda s: s + "_UMI", measures))
-
+            agg_fn["reporter_edited"] = "sum"
+        measures_umi = list(map(lambda s: s + "_UMI", self.measures))
         samples_counts = self.guide_info
         for sample_name, df in self.samples.items():
             counts = df.groupby(["target_id", "guide_num"]).agg(agg_fn)
             counts_umi = df.drop_duplicates().groupby(["target_id", "guide_num"]).agg(agg_fn)
-            counts.columns = ["{}_{}".format(sample_name, s) for s in measures]
+            counts.columns = ["{}_{}".format(sample_name, s) for s in self.measures]
             counts_umi.columns = ["{}_{}".format(sample_name, s) for s in measures_umi]
             samples_counts = samples_counts.merge(counts, on = ["target_id", "guide_num"]).merge(
                 counts_umi, on = ["target_id", "guide_num"])
-
+        print(samples_counts.head())
         return(samples_counts)
 
     def simulate_rep(self):
@@ -270,7 +287,7 @@ class SimulatedScreen:
 
 
     def simulate_reps(self):       
-        for rep in range(self.nreps):
-            self.screen_res.append(simulate_rep())
+        for rep in range(self.n_reps):
+            self.screen_res.append(self.simulate_rep())
             
 
