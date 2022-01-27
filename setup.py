@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='screen-simulation',
-    version='0.0.1',    
+    version='0.1.0',    
     description='Simulate bulk CRISPR screen with sorting schemes and reproter/target edits',
     url='https://github.com/pinellolab/screen-simulation.git',
     author=['Jayoung Ryu', 'Basheer Becerra', 'Lucas Ferreira'],
