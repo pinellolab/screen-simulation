@@ -112,7 +112,7 @@ def get_mageck_sensitivity(
                     mageck_res, 
                     right_on = "id", 
                     left_on = "target_id"
-                    )
+                    ).fillna(False)
                 if sorting_bin in ["top", "high"]:
                     mageck_res["significant"] = mageck_res["pos|fdr"] < FDR_cutoff
                 elif sorting_bin in ["bot", "low"]:
@@ -124,11 +124,11 @@ def get_mageck_sensitivity(
                 mageck_reses.append(mageck_res)
                 bin_sensitivities.append(bin_sensitivity)
 
-            mageck_res_bins = pd.concat(mageck_reses, axis = 1)
+            mageck_res_bins = pd.concat(mageck_reses, axis = 1, ignore_index = True) # 700 x 5
             mageck_res_bins["any_bin"] = mageck_res_bins[screen.sorting_bins_tested
-                ].apply(any, axis = 1)
-            mean_sens_any_bins = mageck_res_bins.groupby("effect_size").agg({"any_bin":"mean"})
-
+                ].apply(any, axis = 1)    # 700 x 1
+            mean_sens_any_bins = mageck_res_bins.groupby("effect_size").agg({"any_bin":"mean"}) #11
+            assert len(mean_sens_any_bins) == len(bin_sensitivities[0]),  bin_sensitivities[0]
             sim_sensitivity = pd.concat(bin_sensitivities + [mean_sens_any_bins],
                 axis = 1).astype(float)
             try:
@@ -149,5 +149,5 @@ def get_mageck_sensitivity(
     mean_sens_df = sim_sens_df.groupby(["measure", "effect_size"]).agg(
         "mean")[screen.sorting_bins_tested + ["any"]]
     
-    return((mean_sens_df, mageck_res_df))
+    return((sim_sensitivities, mageck_res_df))
    

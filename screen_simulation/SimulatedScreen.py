@@ -151,7 +151,7 @@ class SimulatedScreen:
             "effect_size" : np.repeat(effect_sizes, self.n_guides_per_target)
             })
 
-        self.target_info = self.guide_info[["target_id", "effect_size"]].drop_duplicates()
+        self.target_info = self.guide_info[["target_id", "effect_size"]].drop_duplicates().reset_index()
         return(effect_sizes)
 
 
@@ -271,7 +271,6 @@ class SimulatedScreen:
             counts_umi.columns = ["{}_{}".format(sample_name, s) for s in measures_umi]
             samples_counts = samples_counts.merge(counts, on = ["target_id", "guide_num"]).merge(
                 counts_umi, on = ["target_id", "guide_num"])
-        print(samples_counts.head())
         return(samples_counts)
 
     def simulate_rep(self):
