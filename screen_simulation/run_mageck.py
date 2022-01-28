@@ -120,11 +120,11 @@ def get_mageck_sensitivity(
                 else:
                     raise ValueError("Unknown sorting bin")
                 bin_sensitivity = mageck_res.groupby("effect_size").agg({"significant":"mean"})
-                mageck_res = mageck_res[["significant"]].rename(columns = {"significant":sorting_bin})
+                mageck_res = mageck_res.set_index("id", drop = True)[["significant"]].rename(columns = {"significant":sorting_bin})
                 mageck_reses.append(mageck_res)
                 bin_sensitivities.append(bin_sensitivity)
 
-            mageck_res_bins = pd.concat(mageck_reses, axis = 1, ignore_index = True) # 700 x 5
+            mageck_res_bins = pd.concat(mageck_reses, axis = 1) # 700 x 5
             mageck_res_bins["any_bin"] = mageck_res_bins[screen.sorting_bins_tested
                 ].apply(any, axis = 1)    # 700 x 1
             mean_sens_any_bins = mageck_res_bins.groupby("effect_size").agg({"any_bin":"mean"}) #11
@@ -149,5 +149,5 @@ def get_mageck_sensitivity(
     mean_sens_df = sim_sens_df.groupby(["measure", "effect_size"]).agg(
         "mean")[screen.sorting_bins_tested + ["any"]]
     
-    return((sim_sensitivities, mageck_res_df))
+    return((mean_sens_df, mageck_res_df))
    
