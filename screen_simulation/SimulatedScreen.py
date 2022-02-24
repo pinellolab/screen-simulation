@@ -5,10 +5,8 @@ import numpy as np
 import pandas as pd
 from pprint import pprint
 import scipy.stats
-
-
-edit_rates_saved_data = np.loadtxt("/data/pinello/PROJECTS/2021_08_ANBE/data/07+1021_ANBE_data/crisprep_count/bulk_edit_rates.csv")
-guide_coverage_saved_data = np.loadtxt("/data/pinello/PROJECTS/2021_08_ANBE/data/07+1021_ANBE_data/crisprep_count/bulk_coverage_sums.csv")
+import crisprep as cp
+from crisprep import ReporterScreen
 
 
 def _aggregate_counts(df, prefix = None, group_by = ["target_id", "guide_num"]):
@@ -41,6 +39,8 @@ class SimulatedScreen:
     max_effect_size (float) -- Largest effect size (z-score) of phenotype of target variants in the screen.
     screen_res (List[pd.DataFrame])-- List of read count tables of sorted/bulk samples.
     """
+    edit_rates_saved_data = np.loadtxt("/data/pinello/PROJECTS/2021_08_ANBE/data/07+1021_ANBE_data/crisprep_counts/bulk_edit_rates.csv")
+    guide_coverage_saved_data = np.loadtxt("/data/pinello/PROJECTS/2021_08_ANBE/data/07+1021_ANBE_data/crisprep_counts/bulk_coverage_sums.csv")
 
     def __init__(self, 
         n_targets: int = 700,
@@ -75,7 +75,7 @@ class SimulatedScreen:
         if edit_rate_distribution is None:
             self.edit_rate_dist = np.array([1])
         elif edit_rate_distribution == "data":
-            self.edit_rate_dist = edit_rates_saved_data
+            self.edit_rate_dist = type(self).edit_rates_saved_data
         elif isinstance(edit_rate_distribution, np.ndarray):
             self.edit_rate_dist = edit_rate_distribution
         else:
@@ -84,7 +84,7 @@ class SimulatedScreen:
         if guide_coverage_distribution is None:
             self.guide_coverage_dist = np.array([1])
         elif guide_coverage_distribution == "data":
-            self.guide_coverage_dist = guide_coverage_saved_data
+            self.guide_coverage_dist = type(self).guide_coverage_saved_data
         elif isinstance(guide_coverage_distribution, np.ndarray):
             self.guide_coverage_dist = guide_coverage_distribution
         else:
@@ -258,22 +258,28 @@ class SimulatedScreen:
             self.samples[sample_name] = pd.DataFrame(np.repeat(df.values, amplify_count.astype(int), axis = 0))
             self.samples[sample_name].columns = df.columns
 
-    def get_read_counts(self):
+
+
+    def get_read_counts(self, rep = 0):
         agg_fn = {"edited":["count", "sum"]}
         if self.has_reporter:
             agg_fn["reporter_edited"] = "sum"
         measures_umi = list(map(lambda s: s + "_UMI", self.measures))
-        samples_counts = self.guide_info
+        cdata_list = []
+        cdata_umi_list = []
+        
         for sample_name, df in self.samples.items():
-            counts = df.groupby(["target_id", "guide_num"]).agg(agg_fn)
-            counts_umi = df.drop_duplicates().groupby(["target_id", "guide_num"]).agg(agg_fn)
-            counts.columns = ["{}_{}".format(sample_name, s) for s in self.measures]
-            counts_umi.columns = ["{}_{}".format(sample_name, s) for s in measures_umi]
-            samples_counts = samples_counts.merge(counts, on = ["target_id", "guide_num"]).merge(
-                counts_umi, on = ["target_id", "guide_num"])
-        return(samples_counts)
+            condit_df = pd.DataFrame(columns = ['replicate', 'sort'])
+            condit_df.loc["rep{}_{}".format(rep, sample_name)] = [rep, sample_name]
+            cdata = _counts_df_to_repscreen(df, agg_fn, self.guide_info, condit_df)
+            cdata_umi = _counts_df_to_repscreen(df, agg_fn, self.guide_info, condit_df)
+            cdata_list.append(cdata)
+            cdata_umi_list.append(cdata_umi)
+        cdata_all = cp.concat(cdata_list, axis = 1)
+        cdata_umi_all = cp.concat(cdata_umi_list, axis = 1)
+        return(cdata_all, cdata_umi_all)
 
-    def simulate_rep(self):
+    def simulate_rep(self, rep = 0):
         self.simulate_cells()
         # TODO: growing cells and adapting for viability screen
         # self.expand_cells()
@@ -281,12 +287,29 @@ class SimulatedScreen:
         self.sort_cells()
         self.get_genomes()
         self.amplify_reads()
-        read_counts = self.get_read_counts()
-        return(read_counts)
+        read_counts, umi_counts = self.get_read_counts(rep)
+        return(read_counts, umi_counts)
 
-
-    def simulate_reps(self):       
+    def simulate_reps(self):
+        list_cdata = []       
+        list_cdata_umi = []
         for rep in range(self.n_reps):
-            self.screen_res.append(self.simulate_rep())
+            rep_cdata, rep_cdata_umi = self.simulate_rep(rep)
+            list_cdata.append(rep_cdata)
+            list_cdata_umi.append(rep_cdata_umi)
+        reps_cdata = cp.concat(list_cdata, axis = 1)
+        reps_cdata_umi = cp.concat(list_cdata_umi, axis = 1)
+        self.screen_res = (reps_cdata, reps_cdata_umi)
             
-
+            
+def _counts_df_to_repscreen(df, agg_fn, guides, condit):
+    counts = df.groupby(["target_id", "guide_num"]).agg(agg_fn)
+    counts = counts.reindex(pd.MultiIndex.from_frame(guides[["target_id", "guide_num"]]), 
+              fill_value = 0)
+    cdata = ReporterScreen(X = counts[[('edited', 'count')]].to_numpy(),
+            X_edit = counts[[('reporter_edited', 'sum')]].to_numpy(),
+            X_bcmatch = counts[[('edited', 'count')]].to_numpy(),
+            guides = guides, 
+            condit = condit)
+    cdata.layers['target_edited'] = counts[[('edited', 'sum')]].to_numpy()
+    return(cdata)
