@@ -70,7 +70,7 @@ SimulatedScreen object with
 $ sim.guide_info
 $ sim.cells
 $ sim.samples
-$ sim.screen_res # result of sim.simulate_reps() is saved here
+$ adata, adata_umi = sim.screen_res # result of sim.simulate_reps() is saved here as AnnData object
 ```
 
 ## Setting custom parameters for simulation
