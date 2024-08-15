@@ -1,4 +1,5 @@
 from typing import List, Optional, Union
+from typing import Optional, Union, List
 from inspect import ismethod
 
 import numpy as np
@@ -67,7 +68,9 @@ class SimulatedScreen:
         n_guides_per_target: int = 5,
         n_total_cells: int = 10**6 * 8,
         n_bulk_cells=None,
+        selection: str = "sorting",
         sorting_mode: str = "topbot",
+        survival_sample_times: Optional[List[float]] = None,
         nreps: int = 4,
         n_genome_per_sample: int = int(10e4),
         n_reads_per_sample: int = 10**6 * 2,
@@ -79,13 +82,18 @@ class SimulatedScreen:
         scale_by_accessibility: Optional[Union[np.ndarray, bool]] = False,
         scale_with_variability: bool = False,
     ):
-        self.sorting_mode = sorting_mode
-        if self.sorting_mode == "topbot":
-            self.sorting_bins = ["bot", "mid", "top"]
-        elif self.sorting_mode == "bins":
-            self.sorting_bins = ["bot", "low", "mid", "high", "top"]
+        if selection == "sorting":
+            self.sorting_mode = sorting_mode
+            if self.sorting_mode == "topbot":
+                self.sorting_bins = ["bot", "mid", "top"]
+            elif self.sorting_mode == "bins":
+                self.sorting_bins = ["bot", "low", "mid", "high", "top"]
+            else:
+                raise ValueError("Invalid sorting_mode: {}".format(sorting_mode))
+        elif selection == "survival":
+            self.survival_sample_times = np.array(survival_sample_times)
         else:
-            raise ValueError("Invalid sorting_mode: {}".format(sorting_mode))
+            raise ValueError("Invalid selection: {}".format(selection))
         self.sample_names = self.sorting_bins + ["bulk"]
         self.sorting_bins_tested = [sb for sb in self.sorting_bins if sb != "mid"]
 
@@ -301,14 +309,16 @@ class SimulatedScreen:
 
         if self.has_reporter:
             cells["reporter_edited"] = scipy.stats.bernoulli.rvs(cells.edit_rate)
-
         self.cells = cells
 
     def expand_cells(self):
         self.cells = NotImplemented  # TODO
 
     def select_cells(self):
-        self.cells = NotImplemented  # TODO
+        if self.selection == "sorting":
+            self.sort_cells()
+        else:
+            self.prolif_cells()
 
     def sort_cells(self):
         """Sort cells into designated sorting scheme: bulk, 1/2/3/4"""
@@ -338,6 +348,15 @@ class SimulatedScreen:
 
         self.cells["sorted_bin"] = pd.qcut(self.cells.phenotype, q=q, labels=bin_labels)
 
+    def prolif_cells(self):
+        """
+        t: Time of selection
+        """
+        for t in self.survival_sample_times:
+            self.cells[f"prolif_{t}"] = self.cells.phenotype.map(
+                lambda x: np.exp(x * t)
+            )
+
     def get_genomes(self):
         """
         Samples the genomes for each sequencing samples prepped.
@@ -353,21 +372,31 @@ class SimulatedScreen:
             cell_record_to_keep.append("reporter_edited")
 
         # sorted bins
+        if self.selection == "sorting":
+            for sorting_bin, df in self.cells.groupby("sorted_bin", as_index=False):
+                if self.n_genome_per_sample > len(df):
+                    # All genomes are sampled
+                    self.samples[sorting_bin] = df[cell_record_to_keep]
+                else:
+                    self.samples[sorting_bin] = df[cell_record_to_keep].sample(
+                        n=self.n_genome_per_sample, replace=False
+                    )
 
-        for sorting_bin, df in self.cells.groupby("sorted_bin", as_index=False):
-            if self.n_genome_per_sample > len(df):
-                # All genomes are sampled
-                self.samples[sorting_bin] = df[cell_record_to_keep]
-            else:
-                self.samples[sorting_bin] = df[cell_record_to_keep].sample(
-                    n=self.n_genome_per_sample, replace=False
+            # bulk sample
+            self.samples["bulk"] = self.cells[cell_record_to_keep].sample(
+                n=self.n_genome_per_sample, replace=False
+            )
+        # proliferation screen
+        else:
+            for t in self.survival_sample_times:
+                self.samples[f"prolif_{t}"] = pd.DataFrame(
+                    np.repeat(
+                        self.cells[cell_record_to_keep],
+                        self.cells[f"prolif_{t}"].values,
+                        axis=0,
+                    ),
+                    columns=cell_record_to_keep,
                 )
-
-        # bulk sample
-        self.samples["bulk"] = self.cells[cell_record_to_keep].sample(
-            n=self.n_genome_per_sample, replace=False
-        )
-
         # Assign UMI
         for sample_name in self.sample_names:
             self.samples[sample_name]["UMI"] = list(
