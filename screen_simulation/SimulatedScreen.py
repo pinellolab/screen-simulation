@@ -457,8 +457,7 @@ class SimulatedScreen:
         self.simulate_cells()
         # TODO: growing cells and adapting for viability screen
         # self.expand_cells()
-        # self.select_cells()
-        self.sort_cells()
+        self.select_cells()
         self.get_genomes()
         self.amplify_reads()
         read_counts, umi_counts = self.get_read_counts(rep)
